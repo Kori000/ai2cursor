@@ -103,15 +103,6 @@ type Parameter = {
   example?: unknown;
 };
 
-type RequestBody = {
-  content: Record<string, {
-    schema: { type?: string };
-    example?: unknown;
-    examples?: Record<string, unknown>;
-  }>;
-  required?: boolean;
-  description?: string;
-};
 
 // 基本的 OpenAPI Schema 验证器
 const OpenAPISchema = z.object({
@@ -436,10 +427,6 @@ export default function OpenAPIPage() {
     return result;
   }, [apiDoc]);
 
-  // 切换 minimap 显示状态
-  const toggleMinimap = useCallback(() => {
-    setIsMinimapVisible(prev => !prev);
-  }, []);
 
   // 获取请求方法对应的颜色
   const getMethodColors = (method: string) => {
@@ -715,6 +702,17 @@ export default function OpenAPIPage() {
             if (value !== undefined) {
               result[key] = value;
             }
+          }
+        }
+        // 处理 additionalProperties
+        if (schema.additionalProperties) {
+          // 如果 additionalProperties 是一个对象，生成一个示例属性
+          if (typeof schema.additionalProperties === 'object') {
+            const examplePropValue = generateExampleFromSchema(schema.additionalProperties);
+            // 添加两个示例属性
+            result.additionalProp1 = examplePropValue;
+            result.additionalProp2 = examplePropValue;
+            result.additionalProp3 = examplePropValue;
           }
         }
         // 如果有 title 或 description，添加为注释
@@ -1135,12 +1133,12 @@ export default function OpenAPIPage() {
                     return (
                       <div
                         key={tag}
-                        className="group w-full rounded-lg transition-all duration-200 hover:bg-gray-500"
+                        className="group w-full rounded-lg transition-all duration-200 "
                       >
                         <Button
                           variant="ghost"
                           onClick={() => scrollToTag(tag)}
-                          className="w-full justify-start p-3 h-auto"
+                          className="w-full justify-start p-3 h-auto hover:bg-gray-200"
                         >
                           <div className="w-full flex flex-col min-w-0">
                             <div className="flex items-center w-full gap-2">
