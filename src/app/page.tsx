@@ -701,15 +701,22 @@ export default function OpenAPIPage() {
     };
 
     // 格式化 JSON 显示
-    const formatJSON = (obj: unknown): string => {
+    const formatJSON = (obj: unknown, withHtml = true): string => {
       try {
         // 移除 __comment 字段
         const cleanObj = JSON.parse(JSON.stringify(obj, (key, value) => {
           if (key === '__comment') return undefined;
           return value;
         }));
+
+        const formattedJson = JSON.stringify(cleanObj, null, 2);
+
+        if (!withHtml) {
+          return formattedJson;
+        }
+
         // 添加语法高亮 - 使用深色主题配色
-        return JSON.stringify(cleanObj, null, 2)
+        return formattedJson
           .replace(/"([^"]+)":/g, '<span class="text-[#ffffff]">"$1"</span>:')  // 键名颜色 - 白色
           .replace(/: "([^"]+)"/g, ': <span class="text-[#a2fca2]">"$1"</span>')  // 字符串值颜色 - 浅绿色
           .replace(/: (true|false)/g, ': <span class="text-[#569cd6]">$1</span>')  // 布尔值颜色 - 蓝色
@@ -724,7 +731,7 @@ export default function OpenAPIPage() {
 
     const responseExample = getResponseExample();
 
-    // 复制所有可用数据
+    // 复制所有数据
     const copyAllData = () => {
       const parts: string[] = [];
 
@@ -756,14 +763,14 @@ export default function OpenAPIPage() {
       // 请求体示例
       if (requestExample) {
         parts.push('请求示例:');
-        parts.push(formatJSON(requestExample));
+        parts.push(formatJSON(requestExample, false));
         parts.push('');
       }
 
       // 响应示例
       if (responseExample?.example) {
         parts.push(`响应示例 (${responseExample.code}):`);
-        parts.push(formatJSON(responseExample.example));
+        parts.push(formatJSON(responseExample.example, false));
       }
 
       copyToClipboard(parts.join('\n'), 'all');
@@ -953,7 +960,7 @@ export default function OpenAPIPage() {
                   <div className="relative">
                     <div className="absolute right-2 top-2">
                       <button
-                        onClick={() => copyToClipboard(formatJSON(requestExample), 'request')}
+                        onClick={() => copyToClipboard(formatJSON(requestExample, false), 'request')}
                         className="text-[#3b4151] hover:text-[#4990e2] cursor-pointer"
                         title="复制示例"
                       >
@@ -971,16 +978,11 @@ export default function OpenAPIPage() {
               {/* 响应示例 */}
               {responseExample?.example && (
                 <div className="space-y-2">
-                  <h4 className="font-medium text-gray-700">
-                    响应示例
-                    <span className="ml-2 text-sm text-gray-500">
-                      ({responseExample.code})
-                    </span>
-                  </h4>
+                  <h4 className="font-medium text-gray-700">响应示例</h4>
                   <div className="relative">
                     <div className="absolute right-2 top-2">
                       <button
-                        onClick={() => copyToClipboard(formatJSON(responseExample.example), 'response')}
+                        onClick={() => copyToClipboard(formatJSON(responseExample.example, false), 'response')}
                         className="text-[#3b4151] hover:text-[#4990e2] cursor-pointer"
                         title="复制示例"
                       >
