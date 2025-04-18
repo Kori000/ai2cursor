@@ -10,6 +10,7 @@ import { Badge } from "../components/ui/badge";
 import { ScrollArea } from "../components/ui/scroll-area";
 import { useIntersection } from "react-use";
 import UploadButton from "./_components/upload-button";
+import { CodeBlock } from "~/components/CodeBlock";
 // 动态导入 Monaco Editor 以避免 SSR 问题
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
 
@@ -92,7 +93,14 @@ type Parameter = {
   in: string;
   description?: string;
   required?: boolean;
-  schema: { type?: string };
+  schema?: { type?: string };
+  type?: string;
+  format?: string;
+  items?: unknown;
+  collectionFormat?: string;
+  maximum?: number;
+  minimum?: number;
+  example?: unknown;
 };
 
 type RequestBody = {
@@ -165,8 +173,9 @@ export default function OpenAPIPage() {
   const tagRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [isMinimapVisible, setIsMinimapVisible] = useState(false);
   const [isNavVisible, setIsNavVisible] = useState(true);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [copyWithDesc, setCopyWithDesc] = useState(false);
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedApis, setSelectedApis] = useState<Set<string>>(new Set());
 
   // 从 localStorage 加载数据
   useEffect(() => {
@@ -432,9 +441,132 @@ export default function OpenAPIPage() {
     setIsMinimapVisible(prev => !prev);
   }, []);
 
+  // 获取请求方法对应的颜色
+  const getMethodColors = (method: string) => {
+    switch (method.toLowerCase()) {
+      case 'get':
+        return {
+          bg: 'bg-blue-50',
+          border: 'border-blue-200',
+          hover: 'hover:border-blue-300 hover:bg-blue-100'
+        };
+      case 'post':
+        return {
+          bg: 'bg-green-50',
+          border: 'border-green-200',
+          hover: 'hover:border-green-300 hover:bg-green-100'
+        };
+      case 'put':
+        return {
+          bg: 'bg-yellow-50',
+          border: 'border-yellow-200',
+          hover: 'hover:border-yellow-300 hover:bg-yellow-100'
+        };
+      case 'delete':
+        return {
+          bg: 'bg-red-50',
+          border: 'border-red-200',
+          hover: 'hover:border-red-300 hover:bg-red-100'
+        };
+      case 'patch':
+        return {
+          bg: 'bg-purple-50',
+          border: 'border-purple-200',
+          hover: 'hover:border-purple-300 hover:bg-purple-100'
+        };
+      default:
+        return {
+          bg: 'bg-gray-50',
+          border: 'border-gray-200',
+          hover: 'hover:border-gray-300 hover:bg-gray-100'
+        };
+    }
+  };
+
+  // 复制选中的 API 数据
+  const copySelectedApisData = useCallback(() => {
+    if (!apiDoc) return;
+
+    const selectedApiData: string[] = [];
+
+    selectedApis.forEach(apiKey => {
+      const [method, path] = apiKey.split('::');
+      Object.entries(apiDoc.paths).forEach(([pathPattern, methods]) => {
+        if (pathPattern === path && method && methods && method in methods) {
+          const operation = methods[method];
+          if (!operation) return;
+
+          const parts: string[] = [];
+
+          // URL
+          parts.push(`URL: ${method.toUpperCase()} ${path}`);
+
+          // 摘要
+          if (operation.summary) {
+            parts.push(`\n摘要: ${operation.summary}`);
+          }
+
+          // 描述
+          if (operation.description) {
+            parts.push(`\n描述: ${operation.description}`);
+          }
+
+          // URL 参数
+          const parameters = operation.parameters ?? [];
+          if (parameters.length > 0) {
+            parts.push('\nURL 参数:');
+            parameters.forEach((param: any) => {
+              const paramParts = [];
+              paramParts.push(`  参数名: ${param.name}`);
+              paramParts.push(`  位置: ${param.in}`);
+              if (param.type) paramParts.push(`  类型: ${param.type}`);
+              if (!param.type && param.schema?.type) paramParts.push(`  类型: ${param.schema.type}`);
+              if (param.required !== undefined) paramParts.push(`  必填: ${param.required ? 'true' : 'false'}`);
+              if (param.description) paramParts.push(`  描述: ${param.description}`);
+              parts.push(paramParts.join('\n'));
+              parts.push(''); // 空行分隔
+            });
+          }
+
+          selectedApiData.push(parts.join('\n'));
+          selectedApiData.push('\n---\n'); // API 分隔符
+        }
+      });
+    });
+
+    if (selectedApiData.length > 0) {
+      navigator.clipboard.writeText(selectedApiData.join('\n')).then(
+        () => {
+          toast.success(`已复制 ${selectedApis.size} 个 API 到剪贴板`);
+        },
+        (err) => {
+          console.error('无法复制文本: ', err);
+          toast.error('复制失败');
+        }
+      );
+    }
+  }, [apiDoc, selectedApis]);
+
+  // 切换 API 选择状态
+  const toggleApiSelection = useCallback((method: string, path: string) => {
+    const apiKey = `${method}::${path}`;
+    setSelectedApis(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(apiKey)) {
+        newSet.delete(apiKey);
+      } else {
+        newSet.add(apiKey);
+      }
+      return newSet;
+    });
+  }, []);
+
   // 路径项组件 - 提取为单独组件以优化渲染
   const PathItem = ({ item }: { item: { path: string; method: string; operation: OperationObject } }) => {
     const [isExpanded, setIsExpanded] = useState(false);
+    const methodColors = getMethodColors(item.method);
+    const apiKey = `${item.method}::${item.path}`;
+    const isSelected = selectedApis.has(apiKey);
 
     // 获取请求体示例
     const getRequestExample = () => {
@@ -632,7 +764,13 @@ export default function OpenAPIPage() {
           if (key === '__comment') return undefined;
           return value;
         }));
-        return JSON.stringify(cleanObj, null, 2);
+        // 添加语法高亮 - 使用深色主题配色
+        return JSON.stringify(cleanObj, null, 2)
+          .replace(/"([^"]+)":/g, '<span class="text-[#ffffff]">"$1"</span>:')  // 键名颜色 - 白色
+          .replace(/: "([^"]+)"/g, ': <span class="text-[#a2fca2]">"$1"</span>')  // 字符串值颜色 - 浅绿色
+          .replace(/: (true|false)/g, ': <span class="text-[#569cd6]">$1</span>')  // 布尔值颜色 - 蓝色
+          .replace(/: (null)/g, ': <span class="text-[#569cd6]">$1</span>')  // null 值颜色 - 蓝色
+          .replace(/: (\d+)/g, ': <span class="text-[#d36363]">$1</span>');  // 数字颜色 - 红色
       } catch (e) {
         return '无效的 JSON 数据';
       }
@@ -658,11 +796,12 @@ export default function OpenAPIPage() {
       const parameters = item.operation.parameters ?? [];
       if (parameters.length > 0) {
         parts.push('\nURL 参数:');
-        parameters.forEach((param) => {
+        parameters.forEach((param: any) => {
           const paramParts = [];
           paramParts.push(`  参数名: ${param.name}`);
           paramParts.push(`  位置: ${param.in}`);
-          if (param.schema?.type) paramParts.push(`  类型: ${param.schema.type}`);
+          if (param.type) paramParts.push(`  类型: ${param.type}`);
+          if (!param.type && param.schema?.type) paramParts.push(`  类型: ${param.schema.type}`);
           if (param.required !== undefined) paramParts.push(`  必填: ${param.required ? 'true' : 'false'}`);
           if (param.description) paramParts.push(`  描述: ${param.description}`);
           parts.push(paramParts.join('\n'));
@@ -687,14 +826,29 @@ export default function OpenAPIPage() {
     };
 
     return (
-      <div className="rounded border border-gray-200 transition-shadow duration-100">
+      <div className={`rounded border ${methodColors.border} ${methodColors.bg}`}>
         <div
-          className="flex flex-col gap-2 border-b border-gray-200 bg-gray-50 p-3 cursor-pointer"
-          onClick={() => setIsExpanded(!isExpanded)}
+          className="flex flex-col gap-2 border-b border-inherit p-3 cursor-pointer"
+          onClick={(e) => {
+            if (isSelectionMode) {
+              toggleApiSelection(item.method, item.path);
+            } else {
+              setIsExpanded(!isExpanded);
+            }
+          }}
         >
           <div className="flex items-center gap-2">
+            {isSelectionMode && (
+              <input
+                type="checkbox"
+                checked={isSelected}
+                onChange={() => toggleApiSelection(item.method, item.path)}
+                onClick={(e) => e.stopPropagation()}
+                className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+            )}
             <span
-              className={`rounded px-2 py-1 font-mono text-xs font-semibold uppercase text-white duration-200 
+              className={`rounded px-2 py-1 font-mono text-sm font-semibold uppercase text-white duration-200 inline-block w-[70px] text-center
               ${item.method === 'get' ? 'bg-blue-500 hover:bg-blue-600 active:bg-blue-700' :
                   item.method === 'post' ? 'bg-green-500 hover:bg-green-600 active:bg-green-700' :
                     item.method === 'put' ? 'bg-yellow-500 hover:bg-yellow-600 active:bg-yellow-700' :
@@ -709,7 +863,7 @@ export default function OpenAPIPage() {
               {item.method}
             </span>
             <span
-              className="font-mono text-sm hover:underline active:text-blue-700 cursor-pointer"
+              className="font-mono text-[#3b4151] text-base hover:underline active:text-blue-700 cursor-pointer font-semibold "
               onClick={(e) => {
                 e.stopPropagation();
                 copyToClipboard(item.path, 'url');
@@ -720,7 +874,7 @@ export default function OpenAPIPage() {
             </span>
             {item.operation.summary && (
               <span
-                className="text-sm text-gray-600 hover:underline active:text-blue-700 cursor-pointer truncate ml-4"
+                className="text-sm text-gray-600 hover:underline active:text-blue-700 cursor-pointer truncate ml-3"
                 onClick={(e) => {
                   e.stopPropagation();
                   copyToClipboard(item.operation.summary ?? "", 'summary');
@@ -731,7 +885,6 @@ export default function OpenAPIPage() {
               </span>
             )}
             <div className="ml-auto flex items-center gap-2">
-
               <button
                 className="text-gray-500 hover:text-gray-700 cursor-pointer"
                 onClick={(e) => {
@@ -788,55 +941,55 @@ export default function OpenAPIPage() {
                         }).join('\n\n');
                         copyToClipboard(text, 'params-all');
                       }}
-                      className="text-sm text-blue-600 hover:text-blue-700"
+                      className="text-sm text-blue-600 hover:text-blue-700 cursor-pointer"
                     >
                       复制全部参数
                     </button>
                   </div>
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full border border-gray-200 text-sm">
-                      <thead className="bg-gray-50">
+                  <div className="overflow-x-auto rounded-lg border border-gray-700">
+                    <table className="min-w-full text-sm">
+                      <thead className="bg-[#2d2d2d]">
                         <tr>
-                          <th className="border-b px-4 py-2 text-left">参数名</th>
-                          <th className="border-b px-4 py-2 text-left">位置</th>
-                          <th className="border-b px-4 py-2 text-left">类型</th>
-                          <th className="border-b px-4 py-2 text-left">必填</th>
-                          <th className="border-b px-4 py-2 text-left">描述</th>
-                          <th className="border-b px-4 py-2 text-left">操作</th>
+                          <th className="px-4 py-2 text-left font-medium text-[#ffffff] border-b border-gray-700">参数名</th>
+                          <th className="px-4 py-2 text-left font-medium text-[#ffffff] border-b border-gray-700">位置</th>
+                          <th className="px-4 py-2 text-left font-medium text-[#ffffff] border-b border-gray-700">类型</th>
+                          <th className="px-4 py-2 text-left font-medium text-[#ffffff] border-b border-gray-700">必填</th>
+                          <th className="px-4 py-2 text-left font-medium text-[#ffffff] border-b border-gray-700">描述</th>
+                          <th className="px-4 py-2 text-left font-medium text-[#ffffff] border-b border-gray-700">操作</th>
                         </tr>
                       </thead>
                       <tbody>
                         {(item?.operation?.parameters as Parameter[])?.map((param, index) => (
-                          <tr key={index} className="hover:bg-gray-50">
-                            <td className="border-b px-4 py-2 font-mono cursor-pointer hover:text-blue-600 hover:underline"
+                          <tr key={index} className={index % 2 === 0 ? 'bg-[#1e1e1e]' : 'bg-[#252525]'}>
+                            <td className="border-b border-gray-700 px-4 py-2 font-mono text-[#ffffff] cursor-pointer hover:text-[#a2fca2]"
                               onClick={() => copyToClipboard(param, 'param-row')}
                             >
                               {param.name}
                             </td>
-                            <td className="border-b px-4 py-2 cursor-pointer hover:text-blue-600 hover:underline"
+                            <td className="border-b border-gray-700 px-4 py-2 text-[#ffffff] cursor-pointer hover:text-[#a2fca2]"
                               onClick={() => copyToClipboard(param, 'param-row')}
                             >
                               {param.in}
                             </td>
-                            <td className="border-b px-4 py-2 font-mono cursor-pointer hover:text-blue-600 hover:underline"
+                            <td className="border-b border-gray-700 px-4 py-2 font-mono text-[#d36363] cursor-pointer hover:text-[#a2fca2]"
                               onClick={() => copyToClipboard(param, 'param-row')}
                             >
                               {param.schema?.type ?? '未知'}
                             </td>
-                            <td className="border-b px-4 py-2 cursor-pointer hover:text-blue-600 hover:underline"
+                            <td className="border-b border-gray-700 px-4 py-2 text-[#569cd6] cursor-pointer hover:text-[#a2fca2]"
                               onClick={() => copyToClipboard(param, 'param-row')}
                             >
                               {param.required ? '是' : '否'}
                             </td>
-                            <td className="border-b px-4 py-2 cursor-pointer hover:text-blue-600 hover:underline"
+                            <td className="border-b border-gray-700 px-4 py-2 text-[#ffffff] cursor-pointer hover:text-[#a2fca2]"
                               onClick={() => copyToClipboard(param, 'param-row')}
                             >
                               {param.description ?? '-'}
                             </td>
-                            <td className="border-b px-4 py-2">
+                            <td className="border-b border-gray-700 px-4 py-2">
                               <button
                                 onClick={() => copyToClipboard(param, 'param-row')}
-                                className="text-blue-600 hover:text-blue-700 hover:underline cursor-pointer text-sm"
+                                className="text-[#a2fca2] hover:text-[#7cdd7c] hover:underline cursor-pointer text-sm"
                                 title="复制整行"
                               >
                                 复制行
@@ -857,17 +1010,15 @@ export default function OpenAPIPage() {
                     <div className="absolute right-2 top-2">
                       <button
                         onClick={() => copyToClipboard(formatJSON(requestExample), 'request')}
-                        className="text-gray-500 hover:text-gray-700 cursor-pointer"
+                        className="text-[#3b4151] hover:text-[#4990e2] cursor-pointer"
                         title="复制示例"
                       >
                         <Copy size={14} />
                       </button>
                     </div>
-                    <pre
-                      className="bg-gray-50 p-3 rounded font-mono text-sm overflow-x-auto"
-                      dangerouslySetInnerHTML={{
-                        __html: formatJSON(requestExample)
-                      }}
+                    <CodeBlock
+                      code={formatJSON(requestExample)}
+                      rawCode={JSON.stringify(requestExample, null, 2)}
                     />
                   </div>
                 </div>
@@ -886,17 +1037,15 @@ export default function OpenAPIPage() {
                     <div className="absolute right-2 top-2">
                       <button
                         onClick={() => copyToClipboard(formatJSON(responseExample.example), 'response')}
-                        className="text-gray-500 hover:text-gray-700 cursor-pointer"
+                        className="text-[#3b4151] hover:text-[#4990e2] cursor-pointer"
                         title="复制示例"
                       >
                         <Copy size={14} />
                       </button>
                     </div>
-                    <pre
-                      className="bg-gray-50 p-3 rounded font-mono text-sm overflow-x-auto"
-                      dangerouslySetInnerHTML={{
-                        __html: formatJSON(responseExample.example)
-                      }}
+                    <CodeBlock
+                      code={formatJSON(responseExample.example)}
+                      rawCode={JSON.stringify(responseExample.example, null, 2)}
                     />
                   </div>
                 </div>
@@ -986,7 +1135,7 @@ export default function OpenAPIPage() {
                     return (
                       <div
                         key={tag}
-                        className="group w-full rounded-lg transition-all duration-200 hover:bg-gray-50"
+                        className="group w-full rounded-lg transition-all duration-200 hover:bg-gray-500"
                       >
                         <Button
                           variant="ghost"
@@ -1028,56 +1177,74 @@ export default function OpenAPIPage() {
     );
   };
 
-  // 设置菜单组件
-  const SettingsMenu = () => {
-    if (!isSettingsOpen) return null;
-
-    return (
-      <div className="fixed right-4 top-16 z-50 w-80 bg-white rounded-lg shadow-xl border border-gray-200 p-4">
-        <div className="flex justify-between items-center mb-4 pb-2 border-b">
-          <h3 className="text-lg font-semibold">设置</h3>
-          <button
-            onClick={() => setIsSettingsOpen(false)}
-            className="text-gray-500 hover:text-gray-700"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <label className="text-sm font-medium text-gray-700">复制时添加描述</label>
-            <button
-              onClick={() => setCopyWithDesc(!copyWithDesc)}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${copyWithDesc ? 'bg-blue-600' : 'bg-gray-200'}`}
-            >
-              <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${copyWithDesc ? 'translate-x-6' : 'translate-x-1'}`}
-              />
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
   return (
     <div className="flex h-screen flex-col">
       <header className="border-b border-gray-200 bg-white p-4 shadow-sm z-20">
         <div className="flex justify-between items-center">
           <h1 className="text-xl font-bold">OpenAPI 查看器</h1>
-          <button
-            onClick={() => setIsSettingsOpen(!isSettingsOpen)}
-            className="p-2 rounded-full hover:bg-gray-100 transition-colors"
-            title="设置"
-          >
-            <Settings size={20} />
-          </button>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-6 px-4 py-1 border-r border-gray-200">
+              <div className="flex items-center gap-2">
+                <label className="text-sm font-medium text-gray-600">复制时添加描述</label>
+                <button
+                  onClick={() => setCopyWithDesc(!copyWithDesc)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${copyWithDesc ? 'bg-blue-600' : 'bg-gray-200'}`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${copyWithDesc ? 'translate-x-6' : 'translate-x-1'}`}
+                  />
+                </button>
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-sm font-medium text-gray-600">批量选择</label>
+                <button
+                  onClick={() => {
+                    setIsSelectionMode(!isSelectionMode);
+                    if (!isSelectionMode) {
+                      setSelectedApis(new Set());
+                    }
+                  }}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${isSelectionMode ? 'bg-blue-600' : 'bg-gray-200'}`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${isSelectionMode ? 'translate-x-6' : 'translate-x-1'}`}
+                  />
+                </button>
+              </div>
+            </div>
+            {isSelectionMode && (
+              <>
+                {selectedApis.size > 0 && (
+                  <>
+                    <button
+                      onClick={copySelectedApisData}
+                      className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                    >
+                      <Copy size={16} />
+                      复制已选 ({selectedApis.size})
+                    </button>
+                    <button
+                      onClick={() => setSelectedApis(new Set())}
+                      className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
+                    >
+                      取消全选
+                    </button>
+                  </>
+                )}
+                <button
+                  onClick={() => {
+                    setIsSelectionMode(false);
+                    setSelectedApis(new Set());
+                  }}
+                  className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-red-700 bg-red-100 rounded-md hover:bg-red-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                >
+                  退出选择模式
+                </button>
+              </>
+            )}
+          </div>
         </div>
       </header>
-      <SettingsMenu />
       <div className="relative flex flex-1 overflow-hidden" ref={containerRef}>
         {/* 左侧输入区域 */}
         <div
