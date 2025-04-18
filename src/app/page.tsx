@@ -8,11 +8,10 @@ import { toast } from "sonner";
 import { z } from "zod";
 import { CodeBlock } from "~/components/CodeBlock";
 import { FloatingToolbar } from "~/components/FloatingToolbar";
+import { GhostAnimation } from "~/components/GhostAnimation";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { FileActions } from "./_components/file-actions";
-import { RippleAnimation } from "~/components/RippleAnimation";
-import { GhostAnimation } from "~/components/GhostAnimation";
 // 动态导入 Monaco Editor 以避免 SSR 问题
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
 
