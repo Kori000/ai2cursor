@@ -4,7 +4,8 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme {
-  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif,
+  --font-sans:
+    var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif,
     "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
 }
 
@@ -122,4 +123,17 @@
   body {
     @apply bg-background text-foreground;
   }
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+  width: 0px !important;
+  height: 0px !important;
+}
+
+.hide-scrollbar::-webkit-scrollbar-thumb {
+  background-color: transparent !important;
+}
+
+.hide-scrollbar::-webkit-scrollbar-track {
+  background-color: transparent !important;
 }

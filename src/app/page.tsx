@@ -9,6 +9,7 @@ import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import { ScrollArea } from "../components/ui/scroll-area";
 import { useIntersection } from "react-use";
+import UploadButton from "./_components/upload-button";
 // 动态导入 Monaco Editor 以避免 SSR 问题
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
 
@@ -894,7 +895,7 @@ export default function OpenAPIPage() {
                 <p className="text-sm text-gray-500 mt-1">共 {tags.length} 个分类</p>
               </div>
 
-              <div className="flex-1 overflow-y-scroll">
+              <div className="flex-1 overflow-y-scroll hide-scrollbar">
                 <div className="p-2 space-y-1">
                   {tags.map(tag => {
                     const operations = pathsByTag[tag] ?? [];
@@ -911,7 +912,7 @@ export default function OpenAPIPage() {
                         >
                           <div className="w-full flex flex-col min-w-0">
                             <div className="flex items-center w-full gap-2">
-                              <span className="font-medium truncate min-w-0 flex-1 text-gray-700">
+                              <span className="font-medium truncate text-start min-w-0 flex-1 text-gray-700">
                                 {tag}
                               </span>
                               <Badge variant="outline" className="shrink-0">
@@ -1013,12 +1014,11 @@ export default function OpenAPIPage() {
                   accept=".json"
                   className="hidden"
                 />
-                <button
+
+                <UploadButton
                   onClick={() => fileInputRef.current?.click()}
-                  className="rounded bg-blue-500 px-3 py-1 text-white hover:bg-blue-600"
-                >
-                  上传文件
-                </button>
+                
+                />
               </div>
             </div>
 
