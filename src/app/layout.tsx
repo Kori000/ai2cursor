@@ -1,4 +1,5 @@
 import "~/styles/globals.css";
+import '~/styles/ghost.css';
 import { Toaster } from "~/components/ui/sonner"
 import { type Metadata } from "next";
 import { Geist } from "next/font/google";

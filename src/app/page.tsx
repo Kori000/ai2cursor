@@ -11,6 +11,8 @@ import { FloatingToolbar } from "~/components/FloatingToolbar";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { FileActions } from "./_components/file-actions";
+import { RippleAnimation } from "~/components/RippleAnimation";
+import { GhostAnimation } from "~/components/GhostAnimation";
 // 动态导入 Monaco Editor 以避免 SSR 问题
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
 
@@ -196,6 +198,15 @@ export default function OpenAPIPage() {
       }
     }
   }, []);
+
+  useEffect(() => {
+    if (!Boolean(inputValue.trim())) {
+      setIsSelectionMode(false);
+      setCopyWithDesc(false);
+      setError(null);
+      setApiDoc(null);
+    }
+  }, [inputValue]);
 
   // 保存状态到 localStorage
   useEffect(() => {
@@ -469,70 +480,6 @@ export default function OpenAPIPage() {
         };
     }
   };
-
-  // 复制选中的 API 数据
-  const copySelectedApisData = useCallback(() => {
-    if (!apiDoc) return;
-
-    const selectedApiData: string[] = [];
-
-    selectedApis.forEach(apiKey => {
-      const [method, path] = apiKey.split('::');
-      Object.entries(apiDoc.paths).forEach(([pathPattern, methods]) => {
-        if (pathPattern === path && method && methods && method in methods) {
-          const operation = methods[method];
-          if (!operation) return;
-
-          const parts: string[] = [];
-
-          // URL
-          parts.push(`URL: ${method.toUpperCase()} ${path}`);
-
-          // 摘要
-          if (operation.summary) {
-            parts.push(`\n摘要: ${operation.summary}`);
-          }
-
-          // 描述
-          if (operation.description) {
-            parts.push(`\n描述: ${operation.description}`);
-          }
-
-          // URL 参数
-          const parameters = operation.parameters ?? [];
-          if (parameters.length > 0) {
-            parts.push('\nURL 参数:');
-            parameters.forEach((param: any) => {
-              const paramParts = [];
-              paramParts.push(`  参数名: ${param.name}`);
-              paramParts.push(`  位置: ${param.in}`);
-              if (param.type) paramParts.push(`  类型: ${param.type}`);
-              if (!param.type && param.schema?.type) paramParts.push(`  类型: ${param.schema.type}`);
-              if (param.required !== undefined) paramParts.push(`  必填: ${param.required ? 'true' : 'false'}`);
-              if (param.description) paramParts.push(`  描述: ${param.description}`);
-              parts.push(paramParts.join('\n'));
-              parts.push(''); // 空行分隔
-            });
-          }
-
-          selectedApiData.push(parts.join('\n'));
-          selectedApiData.push('\n---\n'); // API 分隔符
-        }
-      });
-    });
-
-    if (selectedApiData.length > 0) {
-      navigator.clipboard.writeText(selectedApiData.join('\n')).then(
-        () => {
-          toast.success(`已复制 ${selectedApis.size} 个 API 到剪贴板`);
-        },
-        (err) => {
-          console.error('无法复制文本: ', err);
-          toast.error('复制失败');
-        }
-      );
-    }
-  }, [apiDoc, selectedApis]);
 
   // 切换 API 选择状态
   const toggleApiSelection = useCallback((method: string, path: string) => {
@@ -1001,7 +948,7 @@ export default function OpenAPIPage() {
                 </div>)}
 
               {/* 请求体示例 */}
-              {['post', 'put'].includes(item.method.toLowerCase()) && (
+              {['post', 'put'].includes(item.method.toLowerCase()) && formatJSON(requestExample) != 'null' && (
                 <div className="space-y-2">
                   <h4 className="font-medium text-gray-700">请求示例</h4>
                   <div className="relative">
@@ -1304,12 +1251,15 @@ export default function OpenAPIPage() {
               )}
             </div>
           ) : (
-            <div className="flex h-full items-center justify-center text-gray-500">
-              <p>在左侧输入或上传 OpenAPI JSON 文件以查看解析结果</p>
+            <div className="flex h-full items-center justify-center text-gray-500 flex-col gap-8">
+              <GhostAnimation className="w-[200px] h-[200px] scale-70 translate-y-8" color="rgba(9, 131, 246, 0.2)" />
+              {/* <RippleAnimation className="w-[200px] h-[200px]" color="rgba(9, 131, 246, 0.2)" /> */}
+              <p className='font-mono text-base'>在左侧输入或上传 OpenAPI JSON 文件以查看解析结果</p>
             </div>
           )}
 
           <FloatingToolbar
+            hasContent={Boolean(inputValue.trim())}
             copyWithDesc={copyWithDesc}
             setCopyWithDesc={setCopyWithDesc}
             isSelectionMode={isSelectionMode}

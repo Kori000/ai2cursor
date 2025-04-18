@@ -1,7 +1,8 @@
-import { Copy, Users, LayoutGrid, FileJson, Layers, X } from "lucide-react";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "~/components/ui/tooltip";
-import { toast } from "sonner";
+import { Copy, FileJson, Layers, Users, X } from "lucide-react";
 import { Fragment } from "react";
+import { toast } from "sonner";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "~/components/ui/tooltip";
+import { cn } from "~/lib/utils";
 
 interface OpenAPIOperation {
   summary?: string;
@@ -34,6 +35,7 @@ interface FloatingToolbarProps {
   selectedApis: Set<string>;
   setSelectedApis: (value: Set<string>) => void;
   apiDoc: OpenAPIDocument | null;
+  hasContent: boolean;
 }
 
 interface ToolbarButtonProps {
@@ -41,16 +43,17 @@ interface ToolbarButtonProps {
   tooltip: string;
   isActive: boolean;
   onClick: () => void;
+  className?: string;
 }
 
-const ToolbarButton = ({ icon, tooltip, isActive, onClick }: ToolbarButtonProps) => {
+const ToolbarButton = ({ icon, tooltip, isActive, onClick, className }: ToolbarButtonProps) => {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         <button
           onClick={onClick}
           className={`group relative p-3 ${isActive ? 'text-blue-600 bg-blue-50' : 'hover:bg-gray-100'
-            } rounded-lg transition-all duration-300`}
+            } rounded-lg transition-all duration-300 ${className}`}
         >
           <div className="flex h-4 w-8 items-center justify-center">
             {icon}
@@ -72,8 +75,6 @@ export function FloatingToolbar({
   setCopyWithDesc,
   isSelectionMode,
   setIsSelectionMode,
-  isMinimapVisible,
-  setIsMinimapVisible,
   isLeftPanelCollapsed,
   setIsLeftPanelCollapsed,
   isNavVisible,
@@ -81,6 +82,7 @@ export function FloatingToolbar({
   selectedApis,
   setSelectedApis,
   apiDoc,
+  hasContent
 }: FloatingToolbarProps) {
   const copySelectedApisData = () => {
     if (!apiDoc) return;
@@ -150,12 +152,14 @@ export function FloatingToolbar({
       icon: <Copy className="group-hover:scale-110 transition-transform duration-300" size={20} />,
       tooltip: "复制添加描述",
       isActive: copyWithDesc,
+      needContent: true,
       onClick: () => setCopyWithDesc(!copyWithDesc),
     },
     {
       icon: <Users className="group-hover:scale-110 transition-transform duration-300" size={20} />,
       tooltip: "批量选择",
       isActive: isSelectionMode,
+      needContent: true,
       onClick: () => {
         setIsSelectionMode(!isSelectionMode);
         if (isSelectionMode) {
@@ -173,12 +177,14 @@ export function FloatingToolbar({
       icon: <FileJson className="group-hover:scale-110 transition-transform duration-300" size={20} />,
       tooltip: "显示编辑器",
       isActive: !isLeftPanelCollapsed,
+      needContent: false,
       onClick: () => setIsLeftPanelCollapsed(!isLeftPanelCollapsed),
     },
     {
       icon: <Layers className="group-hover:scale-110 transition-transform duration-300" size={20} />,
       tooltip: "显示导航栏",
       isActive: isNavVisible,
+      needContent: false,
       onClick: () => setIsNavVisible(!isNavVisible),
     },
   ];
@@ -227,16 +233,19 @@ export function FloatingToolbar({
 
       {/* 主工具栏 */}
       <TooltipProvider>
-        <div className="p-2 bg-white/95 backdrop-blur-sm border border-gray-200/50 rounded-2xl shadow-lg">
-          <div className="flex items-center gap-2">
-            {tools.map((tool, index) => (
-              <Fragment key={index}>
-                <ToolbarButton key={index} {...tool} />
-                {index < tools.length - 1 && (
-                  <div className="w-px h-4 mx-1 bg-gray-200/90" />
-                )}
-              </Fragment>
-            ))}
+        <div className="p-2 transition-all duration-500 bg-white/95 backdrop-blur-sm border border-gray-200/50 rounded-2xl shadow-lg">
+          <div className="flex items-center gap-2 transition-all duration-500">
+            {tools.map((tool, index) => {
+
+              return (
+                <Fragment key={index}>
+                  <ToolbarButton className={cn((tool.needContent && !hasContent) && 'opacity-50 pointer-events-none')} key={index} {...tool} />
+                  {index < tools.length - 1 && (
+                    <div className="w-px h-4 mx-1 bg-gray-200/90" />
+                  )}
+                </Fragment>
+              );
+            })}
           </div>
         </div>
       </TooltipProvider>
