@@ -12,6 +12,7 @@ import { GhostAnimation } from "~/components/GhostAnimation";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { FileActions } from "./_components/file-actions";
+import type { CopyOptions } from "~/components/FloatingToolbar";
 // 动态导入 Monaco Editor 以避免 SSR 问题
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
 
@@ -164,11 +165,20 @@ export default function OpenAPIPage() {
   const [collapsedTags, setCollapsedTags] = useState<Record<string, boolean>>({});
   const tagRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [isMinimapVisible, setIsMinimapVisible] = useState(false);
-  const [isNavVisible, setIsNavVisible] = useState(true);
+  const [isNavVisible, setIsNavVisible] = useState(false);
   const [copyWithDesc, setCopyWithDesc] = useState(false);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedApis, setSelectedApis] = useState<Set<string>>(new Set());
 
+
+  const [copyOptions, setCopyOptions] = useState<CopyOptions>({
+    url: true,
+    summary: true,
+    description: true,
+    parameters: true,
+    requestExample: true,
+    responseExample: true,
+  });
   // 从 localStorage 加载数据
   useEffect(() => {
     const savedData = localStorage.getItem('openapi-viewer-state');
@@ -180,13 +190,22 @@ export default function OpenAPIPage() {
           isLeftPanelCollapsed: boolean;
           collapsedTags: Record<string, boolean>;
           isNavVisible: boolean;
+          copyOptions: CopyOptions;
         };
 
         setInputValue(parsedData.inputValue ?? "");
         setLeftPanelWidth(parsedData.leftPanelWidth ?? 50);
         setIsLeftPanelCollapsed(parsedData.isLeftPanelCollapsed ?? false);
         setCollapsedTags(parsedData.collapsedTags ?? {});
-        setIsNavVisible(parsedData.isNavVisible ?? true);
+        setIsNavVisible(parsedData.isNavVisible ?? false);
+        setCopyOptions(parsedData.copyOptions ?? {
+          url: true,
+          summary: true,
+          description: true,
+          parameters: true,
+          requestExample: true,
+          responseExample: true,
+        });
 
         // 如果有保存的API文档，尝试解析
         if (parsedData.inputValue) {
@@ -202,6 +221,7 @@ export default function OpenAPIPage() {
     if (!Boolean(inputValue.trim())) {
       setIsSelectionMode(false);
       setCopyWithDesc(false);
+      setIsNavVisible(false)
       setError(null);
       setApiDoc(null);
     }
@@ -214,10 +234,11 @@ export default function OpenAPIPage() {
       leftPanelWidth,
       isLeftPanelCollapsed,
       collapsedTags,
-      isNavVisible
+      isNavVisible,
+      copyOptions
     };
     localStorage.setItem('openapi-viewer-state', JSON.stringify(state));
-  }, [inputValue, leftPanelWidth, isLeftPanelCollapsed, collapsedTags, isNavVisible]);
+  }, [inputValue, leftPanelWidth, isLeftPanelCollapsed, collapsedTags, isNavVisible, copyOptions]);
 
   // 解析 OpenAPI JSON
   const parseOpenAPI = useCallback((jsonContent: string) => {
@@ -736,41 +757,56 @@ export default function OpenAPIPage() {
       const parts: string[] = [];
 
       // URL
-      parts.push(`URL: ${item.method.toUpperCase()} ${item.path}`);
+      if (copyOptions.url) {
+        parts.push(`URL: ${item.method.toUpperCase()} ${item.path}`);
+      }
 
       // 摘要
-      if (item.operation.summary) {
+      if (copyOptions.summary && item.operation.summary) {
         parts.push(`\n摘要: ${item.operation.summary}`);
       }
 
+      // 描述
+      if (copyOptions.description && item.operation.description) {
+        parts.push(`\n描述: ${item.operation.description}`);
+      }
+
       // URL 参数
-      const parameters = item.operation.parameters ?? [];
-      if (parameters.length > 0) {
-        parts.push('\nURL 参数:');
-        parameters.forEach((param: any) => {
-          const paramParts = [];
-          paramParts.push(`  参数名: ${param.name}`);
-          paramParts.push(`  位置: ${param.in}`);
-          if (param.type) paramParts.push(`  类型: ${param.type}`);
-          if (!param.type && param.schema?.type) paramParts.push(`  类型: ${param.schema.type}`);
-          if (param.required !== undefined) paramParts.push(`  必填: ${param.required ? 'true' : 'false'}`);
-          if (param.description) paramParts.push(`  描述: ${param.description}`);
-          parts.push(paramParts.join('\n'));
-          parts.push(''); // 空行分隔
-        });
+      if (copyOptions.parameters) {
+        const parameters = item.operation.parameters ?? [];
+        if (parameters.length > 0) {
+          parts.push('\nURL 参数:');
+          parameters.forEach((param: any) => {
+            const paramParts = [];
+            paramParts.push(`  参数名: ${param.name}`);
+            paramParts.push(`  位置: ${param.in}`);
+            if (param.type) paramParts.push(`  类型: ${param.type}`);
+            if (!param.type && param.schema?.type) paramParts.push(`  类型: ${param.schema.type}`);
+            if (param.required !== undefined) paramParts.push(`  必填: ${param.required ? 'true' : 'false'}`);
+            if (param.description) paramParts.push(`  描述: ${param.description}`);
+            parts.push(paramParts.join('\n'));
+            parts.push(''); // 空行分隔
+          });
+        }
       }
 
       // 请求体示例
-      if (requestExample) {
-        parts.push('请求示例:');
-        parts.push(formatJSON(requestExample, false));
-        parts.push('');
+      if (copyOptions.requestExample && ['post', 'put'].includes(item.method.toLowerCase())) {
+        const requestExample = getDefaultExample();
+        if (requestExample) {
+          parts.push('\n请求示例:');
+          parts.push(formatJSON(requestExample, false));
+          parts.push('');
+        }
       }
 
       // 响应示例
-      if (responseExample?.example) {
-        parts.push(`响应示例 (${responseExample.code}):`);
-        parts.push(formatJSON(responseExample.example, false));
+      if (copyOptions.responseExample) {
+        const responseExample = getResponseExample();
+        if (responseExample?.example) {
+          parts.push(`\n响应示例 (${responseExample.code}):`);
+          parts.push(formatJSON(responseExample.example, false));
+        }
       }
 
       copyToClipboard(parts.join('\n'), 'all');
@@ -1274,6 +1310,8 @@ export default function OpenAPIPage() {
             selectedApis={selectedApis}
             setSelectedApis={setSelectedApis}
             apiDoc={apiDoc}
+            copyOptions={copyOptions}
+            setCopyOptions={setCopyOptions}
           />
         </div>
 
