@@ -30,6 +30,8 @@ const SchemaObject: z.ZodType<any> = z.object({
   maximum: z.number().optional(),
   minimum: z.number().optional(),
   collectionFormat: z.string().optional(),
+  title: z.string().optional(),
+  allOf: z.array(z.lazy(() => SchemaObject.or(z.object({ $ref: z.string() })))).optional(),
 });
 
 
@@ -59,7 +61,10 @@ const OperationObjectSchema = z.object({
     content: z.record(z.object({
       schema: SchemaObject.or(z.object({ $ref: z.string() })),
       example: z.unknown().optional(),
-      examples: z.record(z.unknown()).optional(),
+      examples: z.record(z.object({
+        summary: z.string().optional(),
+        value: z.unknown(),
+      })).optional(),
     })),
     required: z.boolean().optional(),
     description: z.string().optional(),
@@ -71,7 +76,10 @@ const OperationObjectSchema = z.object({
     content: z.record(z.object({
       schema: SchemaObject.or(z.object({ $ref: z.string() })),
       example: z.unknown().optional(),
-      examples: z.record(z.unknown()).optional(),
+      examples: z.record(z.object({
+        summary: z.string().optional(),
+        value: z.unknown(),
+      })).optional(),
     })).optional(),
   })),
   security: z.array(z.record(z.array(z.string()))).optional(),
@@ -428,18 +436,8 @@ export default function OpenAPIPage() {
   const PathItem = ({ item }: { item: { path: string; method: string; operation: OperationObject } }) => {
     const [isExpanded, setIsExpanded] = useState(false);
 
-    // 格式化 JSON 显示
-    const formatJSON = (obj: unknown): string => {
-      try {
-        return JSON.stringify(obj, null, 2);
-      } catch (e) {
-        return '无效的 JSON 数据';
-      }
-    };
-
     // 获取请求体示例
     const getRequestExample = () => {
-
       if (!item.operation.requestBody?.content) return null;
 
       const firstContentType = Object.entries(item.operation.requestBody.content)[0];
@@ -468,34 +466,35 @@ export default function OpenAPIPage() {
 
       const [contentType, content] = firstContentType;
 
-      // 首先检查直接的 example
+      // 首先检查 examples
+      if (content.examples) {
+        // 找到第一个成功的示例（通常是 code 为 200 的示例）
+        const successExample = Object.entries(content.examples).find(([key, example]) => {
+          if (typeof example === 'object' && example !== null && 'value' in example) {
+            const value = example.value as any;
+            return value?.code === 200 || key.includes('success');
+          }
+          return false;
+        });
+
+        if (successExample) {
+          const [key, example] = successExample;
+          return {
+            code,
+            contentType,
+            example: example.value,
+            summary: example.summary
+          };
+        }
+      }
+
+      // 然后检查直接的 example
       if (content.example) {
         return {
           code,
           contentType,
           example: content.example
         };
-      }
-
-      // 然后检查 examples
-      if (content.examples) {
-        const firstExample = Object.values(content.examples)[0];
-        if (firstExample && typeof firstExample === 'object') {
-          // 如果有 value 字段，使用它
-          if ('value' in firstExample) {
-            return {
-              code,
-              contentType,
-              example: firstExample.value
-            };
-          }
-          // 否则使用整个示例对象
-          return {
-            code,
-            contentType,
-            example: firstExample
-          };
-        }
       }
 
       // 最后尝试从 schema 生成示例
@@ -519,13 +518,9 @@ export default function OpenAPIPage() {
       }
 
       // 从 schema 生成示例
-      if (item.operation.requestBody?.content?.['application/json']?.schema?.$ref) {
-        const ref = item.operation.requestBody.content['application/json'].schema.$ref;
-        const schemaName = ref.replace('#/components/schemas/', '');
-        const schema = apiDoc?.components?.schemas?.[schemaName];
-        if (schema) {
-          return generateExampleFromSchema(schema);
-        }
+      if (item.operation.requestBody?.content?.['application/json']?.schema) {
+        const schema = item.operation.requestBody.content['application/json'].schema;
+        return generateExampleFromSchema(schema);
       }
 
       return null;
@@ -540,12 +535,41 @@ export default function OpenAPIPage() {
         return schema.example;
       }
 
+      // 处理 allOf
+      if (schema.allOf) {
+        const result: Record<string, any> = {};
+        for (const subSchema of schema.allOf) {
+          const subExample = generateExampleFromSchema(subSchema);
+          if (typeof subExample === 'object' && subExample !== null) {
+            Object.assign(result, subExample);
+          }
+        }
+        // 如果 schema 本身有额外的属性，也合并进去
+        if (schema.properties) {
+          const propsExample = generateExampleFromSchema({
+            type: 'object',
+            properties: schema.properties,
+            required: schema.required
+          });
+          Object.assign(result, propsExample);
+        }
+        return result;
+      }
+
       // 如果是引用类型
       if (schema.$ref) {
         const schemaName = schema.$ref.replace('#/components/schemas/', '');
-        const refSchema = apiDoc?.components?.schemas?.[schemaName];
+        const refSchema = apiDoc?.components?.schemas?.[schemaName] ?? apiDoc?.definitions?.[schemaName];
         if (refSchema) {
-          return generateExampleFromSchema(refSchema);
+          const refExample = generateExampleFromSchema(refSchema);
+          // 如果引用的 schema 有 title 或 description，可以用作示例值的注释
+          if (schema.title ?? schema.description) {
+            return {
+              ...refExample,
+              __comment: schema.title ?? schema.description
+            };
+          }
+          return refExample;
         }
       }
 
@@ -555,22 +579,23 @@ export default function OpenAPIPage() {
         const properties = schema.properties as Record<string, any>;
         if (properties) {
           for (const [key, prop] of Object.entries(properties)) {
-            result[key] = generateExampleFromSchema(prop);
+            const value = generateExampleFromSchema(prop);
+            if (value !== undefined) {
+              result[key] = value;
+            }
           }
+        }
+        // 如果有 title 或 description，添加为注释
+        if (schema.title ?? schema.description) {
+          result.__comment = schema.title ?? schema.description;
         }
         return result;
       }
 
       // 处理数组类型
       if (schema.type === 'array' && schema.items) {
-        if (schema.items.$ref) {
-          const schemaName = schema.items.$ref.replace('#/components/schemas/', '');
-          const itemSchema = apiDoc?.components?.schemas?.[schemaName];
-          if (itemSchema) {
-            return [generateExampleFromSchema(itemSchema)];
-          }
-        }
-        return [generateExampleFromSchema(schema.items)];
+        const itemExample = generateExampleFromSchema(schema.items);
+        return itemExample !== undefined ? [itemExample] : [];
       }
 
       // 基础类型的默认值
@@ -585,6 +610,8 @@ export default function OpenAPIPage() {
         case 'number':
         case 'integer':
           if (schema.default !== undefined) return schema.default;
+          if (schema.minimum !== undefined) return schema.minimum;
+          if (schema.maximum !== undefined) return schema.maximum;
           return 0;
         case 'boolean':
           if (schema.default !== undefined) return schema.default;
@@ -593,7 +620,21 @@ export default function OpenAPIPage() {
           return null;
         default:
           if (schema.default !== undefined) return schema.default;
-          return null;
+          return undefined;
+      }
+    };
+
+    // 格式化 JSON 显示
+    const formatJSON = (obj: unknown): string => {
+      try {
+        // 移除 __comment 字段
+        const cleanObj = JSON.parse(JSON.stringify(obj, (key, value) => {
+          if (key === '__comment') return undefined;
+          return value;
+        }));
+        return JSON.stringify(cleanObj, null, 2);
+      } catch (e) {
+        return '无效的 JSON 数据';
       }
     };
 
@@ -1059,7 +1100,7 @@ export default function OpenAPIPage() {
 
                 <UploadButton
                   onClick={() => fileInputRef.current?.click()}
-                
+
                 />
               </div>
             </div>
