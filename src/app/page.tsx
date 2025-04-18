@@ -1,11 +1,14 @@
 "use client";
 
-import { useState, useRef, useCallback, useMemo, useEffect } from "react";
-import { z } from "zod";
+import { ArrowLeftRight, Bookmark, ChevronDown, ChevronRight, Copy, Map, Menu, Settings } from "lucide-react";
 import dynamic from "next/dynamic";
-import { ArrowLeftRight, Menu, Copy, ChevronDown, ChevronRight, Bookmark, Map, Settings } from "lucide-react";
-import { toast } from "sonner"
-import "./minimap.css";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
+import { z } from "zod";
+import { Button } from "../components/ui/button";
+import { Badge } from "../components/ui/badge";
+import { ScrollArea } from "../components/ui/scroll-area";
+import { useIntersection } from "react-use";
 // 动态导入 Monaco Editor 以避免 SSR 问题
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
 
@@ -108,10 +111,8 @@ export default function OpenAPIPage() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isLeftPanelCollapsed, setIsLeftPanelCollapsed] = useState(false);
   const [collapsedTags, setCollapsedTags] = useState<Record<string, boolean>>({});
-  const [copiedText, setCopiedText] = useState<string | null>(null);
   const tagRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [isMinimapVisible, setIsMinimapVisible] = useState(false);
-  const [hoveredCopyItem, setHoveredCopyItem] = useState<string | null>(null);
   const [isNavVisible, setIsNavVisible] = useState(true);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [copyWithDesc, setCopyWithDesc] = useState(false);
@@ -380,18 +381,6 @@ export default function OpenAPIPage() {
     setIsMinimapVisible(prev => !prev);
   }, []);
 
-  // 设置悬停的可复制项
-  const handleCopyItemHover = useCallback((id: string | null) => {
-    setHoveredCopyItem(id);
-  }, []);
-
-  // 解析 schema 引用
-  const resolveSchemaRef = (ref: string) => {
-    if (!ref.startsWith('#/components/schemas/')) return null;
-    const schemaName = ref.replace('#/components/schemas/', '');
-    return apiDoc?.components?.schemas?.[schemaName];
-  };
-
   // 路径项组件 - 提取为单独组件以优化渲染
   const PathItem = ({ item }: { item: { path: string; method: string; operation: OperationObject } }) => {
     const [isExpanded, setIsExpanded] = useState(false);
@@ -415,10 +404,9 @@ export default function OpenAPIPage() {
 
       const [contentType, content] = firstContentType;
 
-
       return {
         contentType,
-        example: content.example ?? (content.examples ? Object.values(content.examples)[0] : null),
+        example: content.example ?? null,
       };
     };
 
@@ -509,15 +497,28 @@ export default function OpenAPIPage() {
         return schema.example;
       }
 
-      if (schema.type === 'object' && schema.properties) {
+      // 如果是引用类型
+      if (schema.$ref) {
+        const schemaName = schema.$ref.replace('#/components/schemas/', '');
+        const refSchema = apiDoc?.components?.schemas?.[schemaName];
+        if (refSchema) {
+          return generateExampleFromSchema(refSchema);
+        }
+      }
+
+      // 处理对象类型
+      if (schema.type === 'object' || schema.properties) {
         const result: Record<string, any> = {};
-        const properties = schema.properties as Record<string, Record<string, unknown>>;
-        for (const [key, prop] of Object.entries(properties)) {
-          result[key] = generateExampleFromSchema(prop);
+        const properties = schema.properties as Record<string, any>;
+        if (properties) {
+          for (const [key, prop] of Object.entries(properties)) {
+            result[key] = generateExampleFromSchema(prop);
+          }
         }
         return result;
       }
 
+      // 处理数组类型
       if (schema.type === 'array' && schema.items) {
         if (schema.items.$ref) {
           const schemaName = schema.items.$ref.replace('#/components/schemas/', '');
@@ -535,13 +536,20 @@ export default function OpenAPIPage() {
           if (schema.format === 'date') return "2025-04-18";
           if (schema.format === 'date-time') return "2025-04-18T00:00:00";
           if (schema.enum?.length > 0) return schema.enum[0];
+          if (schema.title) return `示例${schema.title}`;
+          if (schema.description) return `示例${schema.description}`;
           return "string";
         case 'number':
         case 'integer':
+          if (schema.default !== undefined) return schema.default;
           return 0;
         case 'boolean':
+          if (schema.default !== undefined) return schema.default;
           return false;
+        case 'null':
+          return null;
         default:
+          if (schema.default !== undefined) return schema.default;
           return null;
       }
     };
@@ -672,7 +680,7 @@ export default function OpenAPIPage() {
               )}
 
               {/* 参数列表 */}
-              {item?.operation?.parameters?.length && item?.operation?.parameters?.length > 0 && (
+              {Boolean(item?.operation?.parameters?.length) && (
                 <div className="space-y-2">
                   <div className="flex justify-between items-center">
                     <h4 className="font-medium text-gray-700">URL 参数</h4>
@@ -858,14 +866,15 @@ export default function OpenAPIPage() {
     if (tags.length === 0) return null;
 
     return (
-      <div className={`fixed right-0 top-0 h-full z-10 transition-all duration-300 ease-in-out
+      <div className={`fixed right-0 top-[73px] bottom-0 transition-all duration-300 ease-in-out
         ${isNavVisible ? 'w-[280px]' : 'w-[40px]'}`}
       >
-        <div className="h-full flex">
-          {/* 切换按钮 */}
-          <button
+        <div className="h-full flex ">
+          <Button
+            variant="ghost"
+            size="icon"
             onClick={() => setIsNavVisible(!isNavVisible)}
-            className={`flex items-center justify-center h-full w-[40px] bg-gray-100 hover:bg-gray-200 
+            className={`flex items-center justify-center h-full w-[40px] 
               transition-colors duration-200 border-l border-gray-200
               ${isNavVisible ? 'shadow-sm' : 'shadow-lg'}`}
             title={isNavVisible ? "收起导航" : "展开导航"}
@@ -873,154 +882,62 @@ export default function OpenAPIPage() {
             <Bookmark size={20} className={`transform transition-transform duration-300 
               ${isNavVisible ? 'rotate-0 text-gray-600' : '-rotate-180 text-gray-400'}`}
             />
-          </button>
+          </Button>
 
-          {/* 导航内容 */}
-          <div className={`h-full bg-white/95 backdrop-blur-sm border-l border-gray-200 
+          <div className={`h-full relative  flex-1 bg-white/95 backdrop-blur-sm border-l border-gray-200 
             overflow-hidden transition-all duration-300 shadow-xl
             ${isNavVisible ? 'w-[240px] opacity-100' : 'w-0 opacity-0'}`}
           >
             <div className="h-full flex flex-col">
-              {/* 导航头部 */}
               <div className="p-4 border-b border-gray-200 bg-white/50">
                 <h3 className="text-lg font-semibold text-gray-700">API 导航</h3>
                 <p className="text-sm text-gray-500 mt-1">共 {tags.length} 个分类</p>
               </div>
 
-              {/* 导航列表 */}
-              <div className="flex-1 overflow-y-auto p-2">
-                <div className="space-y-1">
+              <div className="flex-1 overflow-y-scroll">
+                <div className="p-2 space-y-1">
                   {tags.map(tag => {
                     const operations = pathsByTag[tag] ?? [];
-                    const isActive = tagRefs.current[tag] === document.activeElement;
 
                     return (
                       <div
                         key={tag}
-                        className={`group rounded-lg transition-all duration-200
-                          ${isActive ? 'bg-blue-50 shadow-sm' : 'hover:bg-gray-50'}`}
+                        className="group w-full rounded-lg transition-all duration-200 hover:bg-gray-50"
                       >
-                        <button
+                        <Button
+                          variant="ghost"
                           onClick={() => scrollToTag(tag)}
-                          className="w-full text-left p-3 flex items-center gap-2 group"
+                          className="w-full justify-start p-3 h-auto"
                         >
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium text-gray-700 truncate group-hover:text-blue-600">
+                          <div className="w-full flex flex-col min-w-0">
+                            <div className="flex items-center w-full gap-2">
+                              <span className="font-medium truncate min-w-0 flex-1 text-gray-700">
                                 {tag}
                               </span>
-                              <span className="px-2 py-0.5 rounded-full bg-gray-100 text-xs text-gray-500 group-hover:bg-blue-100 group-hover:text-blue-600">
+                              <Badge variant="outline" className="shrink-0">
                                 {operations.length}
-                              </span>
+                              </Badge>
                             </div>
 
-                            {/* 预览第一个接口 */}
                             {operations[0] && (
-                              <p className="mt-1 text-xs text-gray-400 truncate group-hover:text-gray-600">
+                              <p className="mt-1 text-xs text-start text-gray-400 truncate">
                                 {operations[0].path}
                               </p>
                             )}
                           </div>
-                        </button>
+                        </Button>
                       </div>
                     );
                   })}
                 </div>
               </div>
 
-              {/* 导航底部 */}
               <div className="p-3 border-t border-gray-200 bg-white/50">
                 <p className="text-xs text-center text-gray-400">
                   点击标签快速导航到对应接口
                 </p>
               </div>
             </div>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  // Minimap组件
-  const MinimapButton = () => (
-    <div className="fixed left-4 bottom-4 z-20">
-      <button
-        onClick={toggleMinimap}
-        className={`flex items-center justify-center h-10 w-10 rounded-full shadow-lg transition-all duration-300 
-          ${isMinimapVisible ? 'bg-blue-500 text-white rotate-180' : 'bg-white/80 text-gray-700 hover:bg-white hover:shadow-md'}`}
-        title={isMinimapVisible ? "隐藏小地图" : "显示小地图"}
-      >
-        <Map size={18} className="transition-transform duration-300" />
-      </button>
-    </div>
-  );
-
-  const Minimap = () => {
-    if (!isMinimapVisible || !apiDoc) return null;
-
-    return (
-      <div
-        className={`fixed right-4 bottom-4 z-20 backdrop-blur-sm bg-white/40 hover:bg-white/90 
-          rounded-lg shadow-lg p-4 w-[220px] max-h-[400px] overflow-hidden transition-all duration-300
-          hover:shadow-xl transform hover:scale-[1.02]`}
-      >
-        <div className="relative">
-          <div className="absolute top-0 right-0 left-0 h-6 bg-gradient-to-b from-white/80 to-transparent z-10" />
-          <div className="absolute bottom-0 right-0 left-0 h-6 bg-gradient-to-t from-white/80 to-transparent z-10" />
-
-          <div className="overflow-y-auto max-h-[380px] pr-2 minimap-scroll">
-            <h4 className="text-xs font-bold mb-3 sticky top-0 bg-white/80 backdrop-blur-sm z-10 pb-2 border-b flex items-center gap-2">
-              <Map size={12} />
-              API 结构概览
-            </h4>
-            <ul className="text-xs space-y-3">
-              {Object.entries(pathsByTag).map(([tag, operations]) => (
-                <li key={tag} className="relative group">
-                  <button
-                    className={`text-left w-full py-1 px-2 rounded-md transition-all duration-200
-                      ${collapsedTags[tag] ? 'bg-gray-50/50' : 'bg-blue-50/50 shadow-sm'}
-                      hover:bg-blue-100/50`}
-                    onClick={() => scrollToTag(tag)}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className={`truncate ${collapsedTags[tag] ? '' : 'font-medium text-blue-600'}`}>
-                        {tag}
-                      </span>
-                      <span className="ml-1 text-[10px] text-gray-500">
-                        {operations.length}
-                      </span>
-                    </div>
-                  </button>
-
-                  {!collapsedTags[tag] && (
-                    <ul className="mt-1 space-y-1 pl-3 border-l border-gray-200">
-                      {operations.slice(0, 3).map((op, idx) => (
-                        <li key={idx} className="group/item">
-                          <div className="flex items-center gap-1 opacity-70 group-hover/item:opacity-100 transition-opacity">
-                            <span className={`inline-block w-8 text-center rounded-sm text-[8px] font-medium
-                              ${op.method === 'get' ? 'bg-blue-100 text-blue-600' :
-                                op.method === 'post' ? 'bg-green-100 text-green-600' :
-                                  op.method === 'put' ? 'bg-yellow-100 text-yellow-600' :
-                                    op.method === 'delete' ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-gray-600'}`}
-                            >
-                              {op.method.toUpperCase()}
-                            </span>
-                            <span className="truncate text-[10px] text-gray-600">
-                              {op.path.split('/').pop()}
-                            </span>
-                          </div>
-                        </li>
-                      ))}
-                      {operations.length > 3 && (
-                        <li className="text-[10px] text-gray-400 pl-2">
-                          +{operations.length - 3} 个接口...
-                        </li>
-                      )}
-                    </ul>
-                  )}
-                </li>
-              ))}
-            </ul>
           </div>
         </div>
       </div>
@@ -1064,7 +981,7 @@ export default function OpenAPIPage() {
 
   return (
     <div className="flex h-screen flex-col">
-      <header className="border-b border-gray-200 bg-white p-4 shadow-sm">
+      <header className="border-b border-gray-200 bg-white p-4 shadow-sm z-20">
         <div className="flex justify-between items-center">
           <h1 className="text-xl font-bold">OpenAPI 查看器</h1>
           <button
@@ -1156,7 +1073,8 @@ export default function OpenAPIPage() {
 
         {/* 右侧展示区域 */}
         <div
-          className="overflow-auto p-4   ease-in-out bg-gray-50"
+          className={`overflow-auto p-4 ease-in-out bg-gray-50 transition-all duration-300 pt-0
+            ${isNavVisible ? 'mr-[280px]' : 'mr-[40px]'}`}
           style={{ width: isLeftPanelCollapsed ? '100%' : `${100 - leftPanelWidth}%` }}
         >
           {apiDoc ? (
@@ -1170,10 +1088,6 @@ export default function OpenAPIPage() {
 
               {Object.keys(pathsByTag).length > 0 ? (
                 <>
-                  <NavigationBar />
-                  <MinimapButton />
-                  <Minimap />
-
                   {Object.entries(pathsByTag).map(([tag, operations]) => (
                     <TagGroup key={tag} tag={tag} operations={operations} />
                   ))}
@@ -1190,14 +1104,9 @@ export default function OpenAPIPage() {
             </div>
           )}
         </div>
-      </div>
 
-      {/* 复制提示 */}
-      {copiedText && (
-        <div className="fixed bottom-4 right-4 bg-gray-800 text-white px-4 py-2 rounded shadow-lg opacity-80 transition-opacity ">
-          已复制到剪贴板
-        </div>
-      )}
+        <NavigationBar />
+      </div>
     </div>
   );
 }

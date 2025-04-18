@@ -4,3 +4,4 @@ globs:
 alwaysApply: true
 ---
 bunx --bun shadcn@latest add 添加组件
+本项目使用~/作为 alias
