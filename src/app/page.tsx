@@ -23,6 +23,13 @@ const SchemaObject: z.ZodType<any> = z.object({
   example: z.unknown().optional(),
   enum: z.array(z.unknown()).optional(),
   required: z.array(z.string()).optional(),
+  additionalProperties: z.unknown().optional(),
+  xml: z.unknown().optional(),
+  description: z.string().optional(),
+  default: z.unknown().optional(),
+  maximum: z.number().optional(),
+  minimum: z.number().optional(),
+  collectionFormat: z.string().optional(),
 });
 
 
@@ -32,12 +39,20 @@ const OperationObjectSchema = z.object({
   description: z.string().optional(),
   operationId: z.string().optional(),
   tags: z.array(z.string()).optional(),
+  consumes: z.array(z.string()).optional(),
+  produces: z.array(z.string()).optional(),
   parameters: z.array(z.object({
     name: z.string(),
     in: z.string(),
     description: z.string().optional(),
     required: z.boolean().optional(),
-    schema: SchemaObject,
+    type: z.string().optional(),
+    format: z.string().optional(),
+    schema: SchemaObject.optional(),
+    items: z.unknown().optional(),
+    collectionFormat: z.string().optional(),
+    maximum: z.number().optional(),
+    minimum: z.number().optional(),
     example: z.unknown().optional(),
   })).optional(),
   requestBody: z.object({
@@ -51,12 +66,16 @@ const OperationObjectSchema = z.object({
   }).optional(),
   responses: z.record(z.object({
     description: z.string().optional(),
+    schema: SchemaObject.optional(),
+    headers: z.record(z.unknown()).optional(),
     content: z.record(z.object({
       schema: SchemaObject.or(z.object({ $ref: z.string() })),
       example: z.unknown().optional(),
       examples: z.record(z.unknown()).optional(),
     })).optional(),
   })),
+  security: z.array(z.record(z.array(z.string()))).optional(),
+  deprecated: z.boolean().optional(),
 });
 
 type OperationObject = z.infer<typeof OperationObjectSchema>;
@@ -80,23 +99,46 @@ type RequestBody = {
 
 // 基本的 OpenAPI Schema 验证器
 const OpenAPISchema = z.object({
-  openapi: z.string().optional(),
   swagger: z.string().optional(),
+  openapi: z.string().optional(),
   info: z.object({
     title: z.string(),
     version: z.string(),
     description: z.string().optional(),
+    termsOfService: z.string().optional(),
+    contact: z.object({
+      email: z.string().optional(),
+    }).optional(),
+    license: z.object({
+      name: z.string().optional(),
+      url: z.string().optional(),
+    }).optional(),
   }),
+  host: z.string().optional(),
+  basePath: z.string().optional(),
+  schemes: z.array(z.string()).optional(),
+  consumes: z.array(z.string()).optional(),
+  produces: z.array(z.string()).optional(),
   tags: z.array(
     z.object({
       name: z.string(),
       description: z.string().optional(),
+      externalDocs: z.object({
+        description: z.string().optional(),
+        url: z.string().optional(),
+      }).optional(),
     })
   ).optional(),
   paths: z.record(z.record(OperationObjectSchema)),
   components: z.object({
     schemas: z.record(SchemaObject),
     securitySchemes: z.record(z.unknown()).optional(),
+  }).optional(),
+  definitions: z.record(SchemaObject).optional(),
+  securityDefinitions: z.record(z.unknown()).optional(),
+  externalDocs: z.object({
+    description: z.string().optional(),
+    url: z.string().optional(),
   }).optional(),
 });
 
