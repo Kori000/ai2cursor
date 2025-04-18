@@ -1,0 +1,6 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+bunx --bun shadcn@latest add 添加组件
