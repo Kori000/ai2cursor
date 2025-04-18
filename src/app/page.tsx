@@ -1,16 +1,16 @@
 "use client";
 
-import { ArrowLeftRight, Bookmark, ChevronDown, ChevronRight, Copy, Map, Menu, Settings } from "lucide-react";
+import { ArrowLeftRight, Bookmark, ChevronDown, ChevronRight, Copy, Menu } from "lucide-react";
 import dynamic from "next/dynamic";
+import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
-import { Button } from "../components/ui/button";
-import { Badge } from "../components/ui/badge";
-import { ScrollArea } from "../components/ui/scroll-area";
-import { useIntersection } from "react-use";
-import UploadButton from "./_components/upload-button";
 import { CodeBlock } from "~/components/CodeBlock";
+import { FloatingToolbar } from "~/components/FloatingToolbar";
+import { Badge } from "../components/ui/badge";
+import { Button } from "../components/ui/button";
+import { FileActions } from "./_components/file-actions";
 // 动态导入 Monaco Editor 以避免 SSR 问题
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
 
@@ -1179,76 +1179,23 @@ export default function OpenAPIPage() {
 
   return (
     <div className="flex h-screen flex-col">
-      <header className="border-b border-gray-200 bg-white p-4 shadow-sm z-20">
-        <div className="flex justify-between items-center">
-          <h1 className="text-xl font-bold">OpenAPI 查看器</h1>
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-6 px-4 py-1 border-r border-gray-200">
-              <div className="flex items-center gap-2">
-                <label className="text-sm font-medium text-gray-600">复制时添加描述</label>
-                <button
-                  onClick={() => setCopyWithDesc(!copyWithDesc)}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${copyWithDesc ? 'bg-blue-600' : 'bg-gray-200'}`}
-                >
-                  <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${copyWithDesc ? 'translate-x-6' : 'translate-x-1'}`}
-                  />
-                </button>
-              </div>
-              <div className="flex items-center gap-2">
-                <label className="text-sm font-medium text-gray-600">批量选择</label>
-                <button
-                  onClick={() => {
-                    setIsSelectionMode(!isSelectionMode);
-                    if (!isSelectionMode) {
-                      setSelectedApis(new Set());
-                    }
-                  }}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${isSelectionMode ? 'bg-blue-600' : 'bg-gray-200'}`}
-                >
-                  <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${isSelectionMode ? 'translate-x-6' : 'translate-x-1'}`}
-                  />
-                </button>
-              </div>
-            </div>
-            {isSelectionMode && (
-              <>
-                {selectedApis.size > 0 && (
-                  <>
-                    <button
-                      onClick={copySelectedApisData}
-                      className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                    >
-                      <Copy size={16} />
-                      复制已选 ({selectedApis.size})
-                    </button>
-                    <button
-                      onClick={() => setSelectedApis(new Set())}
-                      className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
-                    >
-                      取消全选
-                    </button>
-                  </>
-                )}
-                <button
-                  onClick={() => {
-                    setIsSelectionMode(false);
-                    setSelectedApis(new Set());
-                  }}
-                  className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-red-700 bg-red-100 rounded-md hover:bg-red-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-                >
-                  退出选择模式
-                </button>
-              </>
-            )}
-          </div>
+      <header className="border-b border-gray-200 font-mono bg-white p-4 pb-3 shadow-sm z-20">
+        <div className="flex justify-start items-center">
+          <Image
+            src="/logo.png"
+            alt=""
+            className="w-10 h-10"
+            width={40}
+            height={40}
+          />
+          <h1 className="text-lg font-bold ml-4">OpenAPI Copyer</h1>
+
         </div>
       </header>
       <div className="relative flex flex-1 overflow-hidden" ref={containerRef}>
         {/* 左侧输入区域 */}
         <div
-          className={`overflow-hidden   ease-in-out ${isLeftPanelCollapsed ? 'w-0' : ''}`}
+          className={`overflow-hidden ease-in-out ${isLeftPanelCollapsed ? 'w-0' : ''}`}
           style={{ width: isLeftPanelCollapsed ? 0 : `${leftPanelWidth}%` }}
           onDrop={handleDrop}
           onDragOver={handleDragOver}
@@ -1265,16 +1212,26 @@ export default function OpenAPIPage() {
                   className="hidden"
                 />
 
-                <UploadButton
-                  onClick={() => fileInputRef.current?.click()}
-
+                <FileActions
+                  hasContent={Boolean(inputValue.trim())}
+                  onUpload={() => fileInputRef.current?.click()}
+                  onClear={() => {
+                    setInputValue("");
+                    setApiDoc(null);
+                    setError(null)
+                  }}
+                  onExampleSelect={(content) => {
+                    setInputValue(content);
+                    parseOpenAPI(content);
+                  }}
                 />
               </div>
             </div>
 
             {error && (
-              <div className="mb-4 rounded bg-red-100 p-2 text-red-700">
-                {error}
+              // 最多显示三行
+              <div className="mb-4 rounded bg-red-100 p-2 text-red-700  ">
+                <span className='line-clamp-3'>{error}</span>
               </div>
             )}
 
@@ -1323,12 +1280,12 @@ export default function OpenAPIPage() {
 
         {/* 右侧展示区域 */}
         <div
-          className={`overflow-auto p-4 ease-in-out bg-gray-50 transition-all duration-300 pt-0
+          className={`overflow-auto p-4 pb-20 ease-in-out bg-gray-50 transition-all duration-300 pt-0 relative
             ${isNavVisible ? 'mr-[280px]' : 'mr-[40px]'}`}
           style={{ width: isLeftPanelCollapsed ? '100%' : `${100 - leftPanelWidth}%` }}
         >
           {apiDoc ? (
-            <div>
+            <div className='pt-3 '>
               <div className="mb-6 bg-white p-4 rounded-lg shadow-sm">
                 <h2 className="text-2xl font-bold">{apiDoc.info.title} <span className="ml-2 text-sm text-gray-500">v{apiDoc.info.version}</span></h2>
                 {apiDoc.info.description && (
@@ -1353,6 +1310,22 @@ export default function OpenAPIPage() {
               <p>在左侧输入或上传 OpenAPI JSON 文件以查看解析结果</p>
             </div>
           )}
+
+          <FloatingToolbar
+            copyWithDesc={copyWithDesc}
+            setCopyWithDesc={setCopyWithDesc}
+            isSelectionMode={isSelectionMode}
+            setIsSelectionMode={setIsSelectionMode}
+            isMinimapVisible={isMinimapVisible}
+            setIsMinimapVisible={setIsMinimapVisible}
+            isLeftPanelCollapsed={isLeftPanelCollapsed}
+            setIsLeftPanelCollapsed={setIsLeftPanelCollapsed}
+            isNavVisible={isNavVisible}
+            setIsNavVisible={setIsNavVisible}
+            selectedApis={selectedApis}
+            setSelectedApis={setSelectedApis}
+            apiDoc={apiDoc}
+          />
         </div>
 
         <NavigationBar />
