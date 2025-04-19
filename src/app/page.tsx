@@ -17,25 +17,32 @@ import type { CopyOptions } from "~/components/FloatingToolbar";
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
 
 // 定义 Schema 对象的类型
-const SchemaObject: z.ZodType<any> = z.object({
-  type: z.string().optional(),
-  format: z.string().optional(),
-  properties: z.record(z.lazy(() => SchemaObject)).optional(),
-  items: z.lazy(() => SchemaObject.or(z.object({ $ref: z.string() }))).optional(),
-  $ref: z.string().optional(),
-  example: z.unknown().optional(),
-  enum: z.array(z.unknown()).optional(),
-  required: z.array(z.string()).optional(),
-  additionalProperties: z.unknown().optional(),
-  xml: z.unknown().optional(),
-  description: z.string().optional(),
-  default: z.unknown().optional(),
-  maximum: z.number().optional(),
-  minimum: z.number().optional(),
-  collectionFormat: z.string().optional(),
-  title: z.string().optional(),
-  allOf: z.array(z.lazy(() => SchemaObject.or(z.object({ $ref: z.string() })))).optional(),
-});
+const SchemaObject: z.ZodType<any> = z.lazy(() =>
+  z.object({
+    type: z.string().optional(),
+    format: z.string().optional(),
+    properties: z.record(z.lazy(() => SchemaObject)).optional(),
+    items: z.lazy(() => SchemaObject.or(z.object({ $ref: z.string() }))).optional(),
+    $ref: z.string().optional(),
+    example: z.unknown().optional(),
+    enum: z.array(z.unknown()).optional(),
+    required: z.array(z.string()).optional(),
+    additionalProperties: z.unknown().optional(),
+    xml: z.unknown().optional(),
+    description: z.string().optional(),
+    default: z.unknown().optional(),
+    maximum: z.number().optional(),
+    minimum: z.number().optional(),
+    collectionFormat: z.string().optional(),
+    title: z.string().optional(),
+    allOf: z.array(z.lazy(() => SchemaObject.or(z.object({ $ref: z.string() })))).optional(),
+    anyOf: z.array(z.lazy(() => SchemaObject.or(z.object({
+      type: z.string().optional(),
+      items: z.lazy(() => SchemaObject.or(z.object({ $ref: z.string() }))).optional(),
+      $ref: z.string().optional()
+    })))).optional(),
+  }).passthrough()
+);
 
 
 // 定义操作对象的类型
@@ -603,10 +610,16 @@ export default function OpenAPIPage() {
         return requestExample.example;
       }
 
+
       // 从 schema 生成示例
       if (item.operation.requestBody?.content?.['application/json']?.schema) {
         const schema = item.operation.requestBody.content['application/json'].schema;
-        return generateExampleFromSchema(schema);
+
+
+        const result = generateExampleFromSchema(schema);
+
+
+        return result;
       }
 
       return null;
@@ -614,6 +627,7 @@ export default function OpenAPIPage() {
 
     // 从 schema 生成示例值
     const generateExampleFromSchema = (schema: any): any => {
+
       if (!schema) return null;
 
       // 如果有预定义的示例
@@ -621,15 +635,21 @@ export default function OpenAPIPage() {
         return schema.example;
       }
 
+
       // 处理 allOf
       if (schema.allOf) {
+
         const result: Record<string, any> = {};
         for (const subSchema of schema.allOf) {
+
           const subExample = generateExampleFromSchema(subSchema);
+
           if (typeof subExample === 'object' && subExample !== null) {
+
             Object.assign(result, subExample);
           }
         }
+
         // 如果 schema 本身有额外的属性，也合并进去
         if (schema.properties) {
           const propsExample = generateExampleFromSchema({
@@ -639,6 +659,8 @@ export default function OpenAPIPage() {
           });
           Object.assign(result, propsExample);
         }
+
+
         return result;
       }
 
@@ -647,16 +669,30 @@ export default function OpenAPIPage() {
         const schemaName = schema.$ref.replace('#/components/schemas/', '');
         const refSchema = apiDoc?.components?.schemas?.[schemaName] ?? apiDoc?.definitions?.[schemaName];
         if (refSchema) {
-          const refExample = generateExampleFromSchema(refSchema);
-          // 如果引用的 schema 有 title 或 description，可以用作示例值的注释
-          if (schema.title ?? schema.description) {
-            return {
-              ...refExample,
-              __comment: schema.title ?? schema.description
-            };
-          }
-          return refExample;
+          return generateExampleFromSchema(refSchema);
         }
+      }
+
+      // 处理数组类型
+      if (schema.type === 'array' && schema.items) {
+        const itemExample = generateExampleFromSchema(schema.items);
+        return [itemExample];
+      }
+
+      // 处理 anyOf
+      if (schema.anyOf) {
+        // 优先使用非 null 的类型
+        const nonNullSchema = schema.anyOf.find((s: any) => s.type !== 'null');
+        if (nonNullSchema) {
+          // 如果是数组类型，需要特殊处理其中的引用
+          if (nonNullSchema.type === 'array') {
+            const itemExample = generateExampleFromSchema(nonNullSchema.items);
+            return [itemExample];
+          }
+          return generateExampleFromSchema(nonNullSchema);
+        }
+        // 如果都是 null，返回第一个 schema 的示例
+        return generateExampleFromSchema(schema.anyOf[0]);
       }
 
       // 处理对象类型
@@ -676,23 +712,11 @@ export default function OpenAPIPage() {
           // 如果 additionalProperties 是一个对象，生成一个示例属性
           if (typeof schema.additionalProperties === 'object') {
             const examplePropValue = generateExampleFromSchema(schema.additionalProperties);
-            // 添加两个示例属性
+            // 添加示例属性
             result.additionalProp1 = examplePropValue;
-            result.additionalProp2 = examplePropValue;
-            result.additionalProp3 = examplePropValue;
           }
         }
-        // 如果有 title 或 description，添加为注释
-        if (schema.title ?? schema.description) {
-          result.__comment = schema.title ?? schema.description;
-        }
         return result;
-      }
-
-      // 处理数组类型
-      if (schema.type === 'array' && schema.items) {
-        const itemExample = generateExampleFromSchema(schema.items);
-        return itemExample !== undefined ? [itemExample] : [];
       }
 
       // 基础类型的默认值
@@ -749,6 +773,7 @@ export default function OpenAPIPage() {
     };
 
     const requestExample = getDefaultExample();
+
 
     const responseExample = getResponseExample();
 
@@ -992,7 +1017,7 @@ export default function OpenAPIPage() {
               {/* 请求体示例 */}
               {['post', 'put'].includes(item.method.toLowerCase()) && formatJSON(requestExample) != 'null' && (
                 <div className="space-y-2">
-                  <h4 className="font-medium text-gray-700">请求示例</h4>
+                  <h4 className="font-medium text-gray-700">请求示例1</h4>
                   <div className="relative">
                     <div className="absolute right-2 top-2">
                       <button
